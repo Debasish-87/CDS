@@ -2,9 +2,8 @@ name: CI/CD - Build, Scan & Deploy
 
 on:
   push:
-    branches: [main]
-    paths:
-      - 'application/**'
+    branches:
+      - main
   pull_request:
     branches: [main]
 

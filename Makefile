@@ -1,14 +1,28 @@
 # ==========================================================
-# Enterprise DevSecOps Platform - Makefile
+# Enterprise DevSecOps Platform
+# Makefile
 # ==========================================================
 
 SHELL := /bin/bash
 
-AWS_REGION := ap-south-1
-TF_DIR := terraform-infra/environments/dev
-BOOTSTRAP := bootstrap/argocd/install.sh
-
 .DEFAULT_GOAL := help
+
+.PHONY: help doctor fmt init validate plan apply destroy \
+        kubeconfig bootstrap verify health dashboard \
+        pods nodes services ingress namespaces events \
+        logs grafana argocd clean release status setup all
+
+# ==========================================================
+# VARIABLES
+# ==========================================================
+
+AWS_REGION := ap-south-1
+
+CLUSTER_NAME := enterprise-devsecops-dev
+
+TF_DIR := terraform-infra/environments/dev
+
+BOOTSTRAP_SCRIPT := bootstrap/argocd/install.sh
 
 GREEN=\033[0;32m
 RED=\033[0;31m
@@ -25,27 +39,33 @@ help:
 	@echo "$(GREEN)Enterprise DevSecOps Platform$(NC)"
 	@echo ""
 	@echo "Infrastructure"
-	@echo "  make doctor"
-	@echo "  make init"
-	@echo "  make fmt"
-	@echo "  make validate"
-	@echo "  make plan"
-	@echo "  make apply"
-	@echo "  make destroy"
+	@echo "-----------------------------"
+	@echo " make doctor"
+	@echo " make init"
+	@echo " make fmt"
+	@echo " make validate"
+	@echo " make plan"
+	@echo " make apply"
+	@echo " make destroy"
 	@echo ""
-	@echo "Kubernetes"
-	@echo "  make kubeconfig"
-	@echo "  make bootstrap"
-	@echo "  make pods"
-	@echo "  make nodes"
-	@echo "  make services"
-	@echo "  make ingress"
-	@echo "  make health"
-	@echo "  make logs"
+	@echo "Cluster"
+	@echo "-----------------------------"
+	@echo " make kubeconfig"
+	@echo " make bootstrap"
+	@echo " make verify"
+	@echo " make health"
+	@echo " make dashboard"
+	@echo " make logs"
 	@echo ""
 	@echo "Git"
-	@echo "  make status"
-	@echo "  make release"
+	@echo "-----------------------------"
+	@echo " make status"
+	@echo " make release"
+	@echo ""
+	@echo "Automation"
+	@echo "-----------------------------"
+	@echo " make setup"
+	@echo " make all"
 	@echo ""
 
 # ==========================================================
@@ -53,168 +73,221 @@ help:
 # ==========================================================
 
 doctor:
-	@echo "$(BLUE)Checking tools...$(NC)"
-	@command -v aws >/dev/null || (echo "AWS CLI Missing" && exit 1)
-	@command -v terraform >/dev/null || (echo "Terraform Missing" && exit 1)
-	@command -v kubectl >/dev/null || (echo "Kubectl Missing" && exit 1)
-	@command -v helm >/dev/null || (echo "Helm Missing" && exit 1)
-	@command -v docker >/dev/null || (echo "Docker Missing" && exit 1)
-	@command -v git >/dev/null || (echo "Git Missing" && exit 1)
-	@echo "$(GREEN)All tools installed$(NC)"
-	@aws sts get-caller-identity
+	@bash scripts/doctor.sh
 
 # ==========================================================
 # TERRAFORM
 # ==========================================================
 
 fmt:
-	cd $(TF_DIR) && terraform fmt -recursive
+	@bash scripts/terraform.sh fmt
 
 init:
-	cd $(TF_DIR) && terraform init
+	@bash scripts/terraform.sh init
 
 validate:
-	cd $(TF_DIR) && terraform validate
+	@bash scripts/terraform.sh validate
 
 plan:
-	cd $(TF_DIR) && terraform plan
+	@bash scripts/terraform.sh plan
 
 apply:
-	cd $(TF_DIR) && terraform apply -auto-approve
+	@bash scripts/terraform.sh apply
+	@$(MAKE) kubeconfig
 
 destroy:
-	cd $(TF_DIR) && terraform destroy
+	@bash scripts/terraform.sh destroy
 
 # ==========================================================
 # KUBECONFIG
 # ==========================================================
 
 kubeconfig:
-	aws eks update-kubeconfig \
-	--name enterprise-devsecops-dev \
-	--region $(AWS_REGION)
+	@echo ""
+	@echo "$(BLUE)Updating kubeconfig...$(NC)"
+	@aws eks update-kubeconfig \
+		--region $(AWS_REGION) \
+		--name $(CLUSTER_NAME)
 
 # ==========================================================
-# ARGOCD
+# BOOTSTRAP
 # ==========================================================
 
 bootstrap:
-	chmod +x $(BOOTSTRAP)
-	bash $(BOOTSTRAP)
+	@chmod +x $(BOOTSTRAP_SCRIPT)
+	@bash $(BOOTSTRAP_SCRIPT)
 
 # ==========================================================
 # CLUSTER
 # ==========================================================
 
 pods:
-	kubectl get pods -A
+	@kubectl get pods -A
 
 nodes:
-	kubectl get nodes -o wide
+	@kubectl get nodes -o wide
 
 services:
-	kubectl get svc -A
+	@kubectl get svc -A
 
 ingress:
-	kubectl get ingress -A
+	@kubectl get ingress -A
 
 namespaces:
-	kubectl get ns
+	@kubectl get ns
 
 events:
-	kubectl get events -A --sort-by=.metadata.creationTimestamp
-
-health:
-	@echo ""
-	kubectl get nodes
-	@echo ""
-	kubectl get pods -A
-	@echo ""
-	kubectl top nodes || true
-	@echo ""
-	kubectl top pods -A || true
+	@kubectl get events -A \
+		--sort-by=.metadata.creationTimestamp
 
 # ==========================================================
 # LOGS
 # ==========================================================
 
 logs:
-	kubectl logs -n rag deployment/rag-document-qa --tail=100
+	@bash scripts/logs.sh all
 
-argocd-logs:
-	kubectl logs -n argocd deployment/argocd-server --tail=100
+logs-argocd:
+	@bash scripts/logs.sh argocd
+
+logs-rag:
+	@bash scripts/logs.sh rag
+
+logs-prometheus:
+	@bash scripts/logs.sh prometheus
+
+logs-grafana:
+	@bash scripts/logs.sh grafana
+
+logs-falco:
+	@bash scripts/logs.sh falco
+
+logs-kyverno:
+	@bash scripts/logs.sh kyverno
+
+logs-trivy:
+	@bash scripts/logs.sh trivy
 
 # ==========================================================
-# PORT FORWARD
+# DASHBOARD
 # ==========================================================
+
+dashboard:
+	@bash scripts/dashboard.sh all
 
 grafana:
-	kubectl port-forward svc/grafana -n monitoring 3000:80
+	@bash scripts/dashboard.sh grafana
 
 argocd:
-	kubectl port-forward svc/argocd-server -n argocd 8080:443
+	@bash scripts/dashboard.sh argocd
+
+prometheus:
+	@bash scripts/dashboard.sh prometheus
+
+otel:
+	@bash scripts/dashboard.sh otel
 
 # ==========================================================
 # VERIFY
 # ==========================================================
 
 verify:
-	@echo "$(GREEN)Checking Cluster$(NC)"
-	kubectl get nodes
-
-	@echo "$(GREEN)Checking ArgoCD$(NC)"
-	kubectl get pods -n argocd
-
-	@echo "$(GREEN)Checking Monitoring$(NC)"
-	kubectl get pods -n monitoring
-
-	@echo "$(GREEN)Checking External Secrets$(NC)"
-	kubectl get pods -n external-secrets
-
-	@echo "$(GREEN)Checking Falco$(NC)"
-	kubectl get pods -n falco
-
-	@echo "$(GREEN)Checking Kyverno$(NC)"
-	kubectl get pods -n kyverno
-
-	@echo "$(GREEN)Checking Trivy$(NC)"
-	kubectl get pods -A | grep trivy || true
+	@bash scripts/verify.sh
 
 # ==========================================================
-# CLEAN
+# HEALTH
+# ==========================================================
+
+health:
+	@bash scripts/health.sh
+
+# ==========================================================
+# CLEANUP
 # ==========================================================
 
 clean:
-	find . -type d -name ".terraform" -exec rm -rf {} +
-	find . -name "*.tfplan" -delete
-	find . -name ".terraform.lock.hcl" -delete
-	docker system prune -f
+	@bash scripts/cleanup.sh
 
 # ==========================================================
-# GIT
+# STATUS
 # ==========================================================
 
 status:
-	git status
+	@git status
+
+# ==========================================================
+# RELEASE
+# ==========================================================
 
 release:
-	git status
+	@bash scripts/release.sh
+
+# ==========================================================
+# DESTROY
+# ==========================================================
+
+nuke:
+	@bash scripts/destroy.sh
+
+# ==========================================================
+# SETUP
+# ==========================================================
+
+setup:
 	@echo ""
-	@read -p "Commit Message: " msg; \
-	git add . && \
-	git commit -m "$$msg" && \
-	git push origin main
+	@echo "$(GREEN)===========================================$(NC)"
+	@echo "$(GREEN) Enterprise DevSecOps Platform Setup$(NC)"
+	@echo "$(GREEN)===========================================$(NC)"
+	@echo ""
+
+	@$(MAKE) doctor
+	@$(MAKE) init
+	@$(MAKE) validate
+	@$(MAKE) plan
+
+	@echo ""
+	@echo "$(YELLOW)Infrastructure will now be created...$(NC)"
+	@echo ""
+
+	@$(MAKE) apply
+	@$(MAKE) bootstrap
+	@$(MAKE) verify
+	@$(MAKE) health
+
+	@echo ""
+	@echo "$(GREEN)===========================================$(NC)"
+	@echo "$(GREEN) Infrastructure Ready$(NC)"
+	@echo "$(GREEN)===========================================$(NC)"
+	@echo ""
+	@echo "Run:"
+	@echo "  make dashboard"
+	@echo ""
+	@echo "To release:"
+	@echo "  make release"
+	@echo ""
 
 # ==========================================================
-# COMPLETE BOOTSTRAP
+# COMPLETE DEPLOYMENT
 # ==========================================================
 
-all:
-	$(MAKE) doctor
-	$(MAKE) init
-	$(MAKE) validate
-	$(MAKE) apply
-	$(MAKE) kubeconfig
-	$(MAKE) bootstrap
-	$(MAKE) verify
-	$(MAKE) health
+all: setup
+
+# ==========================================================
+# VERSION
+# ==========================================================
+
+version:
+	@echo "Enterprise DevSecOps Platform"
+	@echo "Version : v1.0"
+
+# ==========================================================
+# INFO
+# ==========================================================
+
+info:
+	@echo ""
+	@echo "AWS Region  : $(AWS_REGION)"
+	@echo "Cluster     : $(CLUSTER_NAME)"
+	@echo "Terraform   : $(TF_DIR)"
+	@echo ""
+

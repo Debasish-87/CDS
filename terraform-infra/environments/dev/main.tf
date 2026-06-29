@@ -52,7 +52,7 @@ module "ecr" {
 
 module "github_oidc" {
   source      = "../../modules/github-oidc"
-  github_repo = "Debasish-87/enterprise-devsecops-platform"
+  github_repo = "Debasish-87/CDS"
 }
 
 module "alb_irsa" {

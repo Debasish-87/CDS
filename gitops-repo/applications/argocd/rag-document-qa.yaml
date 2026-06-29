@@ -10,7 +10,7 @@ spec:
   project: default
 
   source:
-    repoURL: https://github.com/Debasish-87/enterprise-devsecops-platform.git
+    repoURL: https://github.com/Debasish-87/CDS.git
     targetRevision: HEAD
     path: gitops-repo/applications/rag-document-qa
 

@@ -12,12 +12,19 @@ source "${ROOT_DIR}/scripts/helpers.sh"
 
 ARGO_SCRIPT="${ROOT_DIR}/bootstrap/argocd/install.sh"
 
+AWS_REGION="ap-south-1"
+CLUSTER_NAME="enterprise-devsecops-dev"
+
 banner
 title "Enterprise DevSecOps Bootstrap"
 
+# ============================================================
+# REQUIREMENTS
+# ============================================================
+
 doctor() {
 
-    section "Checking Requirements"
+    title "Checking Requirements"
 
     require kubectl
     require helm
@@ -26,9 +33,52 @@ doctor() {
     require git
 
     aws_login
-    cluster_check
 
 }
+
+# ============================================================
+# UPDATE KUBECONFIG
+# ============================================================
+
+update_kubeconfig() {
+
+    title "Updating kubeconfig"
+
+    aws eks update-kubeconfig \
+        --region "$AWS_REGION" \
+        --name "$CLUSTER_NAME"
+
+    cluster_check
+
+    success "Connected to cluster"
+
+}
+
+# ============================================================
+# VERIFY CLUSTER
+# ============================================================
+
+verify_cluster() {
+
+    title "Cluster"
+
+    kubectl get nodes
+
+    NODE_COUNT=$(kubectl get nodes --no-headers | wc -l)
+
+    if [[ "$NODE_COUNT" -eq 0 ]]; then
+
+        die "No worker nodes found."
+
+    fi
+
+    success "$NODE_COUNT Worker Node(s)"
+
+}
+
+# ============================================================
+# INSTALL ARGOCD
+# ============================================================
 
 install_argocd() {
 
@@ -42,11 +92,33 @@ install_argocd() {
 
 }
 
+# ============================================================
+# WAIT FOR NAMESPACE
+# ============================================================
+
+wait_namespace() {
+
+    title "Waiting for argocd namespace"
+
+    until kubectl get ns argocd >/dev/null 2>&1
+    do
+        sleep 5
+    done
+
+    success "Namespace Ready"
+
+}
+
+# ============================================================
+# WAIT FOR ARGOCD
+# ============================================================
+
 wait_argocd() {
 
     title "Waiting for ArgoCD"
 
-    kubectl rollout status deployment/argocd-server \
+    kubectl rollout status \
+        deployment/argocd-server \
         -n argocd \
         --timeout=600s
 
@@ -61,35 +133,118 @@ wait_argocd() {
 
 }
 
-show_password() {
+# ============================================================
+# VERIFY ARGOCD
+# ============================================================
 
-    title "ArgoCD Admin Password"
+verify_argocd() {
 
-    PASSWORD=$(kubectl \
-        -n argocd \
-        get secret argocd-initial-admin-secret \
-        -o jsonpath="{.data.password}" | base64 -d)
+    title "Verifying Installation"
 
-    echo ""
-    echo "Username : admin"
-    echo "Password : $PASSWORD"
-    echo ""
+    kubectl get pods -n argocd
 
-}
-
-sync_status() {
-
-    title "GitOps Applications"
+    kubectl get svc -n argocd
 
     kubectl get applications -n argocd || true
 
 }
+# ============================================================
+# SHOW ADMIN PASSWORD
+# ============================================================
+
+show_password() {
+
+    title "ArgoCD Admin Password"
+
+    if kubectl get secret argocd-initial-admin-secret \
+        -n argocd >/dev/null 2>&1
+    then
+
+        PASSWORD=$(kubectl \
+            -n argocd \
+            get secret argocd-initial-admin-secret \
+            -o jsonpath="{.data.password}" | base64 -d)
+
+        echo ""
+        echo "Username : admin"
+        echo "Password : ${PASSWORD}"
+        echo ""
+
+    else
+
+        warning "Admin password not available yet."
+
+    fi
+
+}
+
+# ============================================================
+# GITOPS STATUS
+# ============================================================
+
+sync_status() {
+
+    title "GitOps Status"
+
+    kubectl get applications -n argocd || true
+
+    echo ""
+
+    kubectl get applicationsets -n argocd || true
+
+}
+
+# ============================================================
+# VERIFY PLATFORM COMPONENTS
+# ============================================================
+
+verify_components() {
+
+    title "Platform Components"
+
+    COMPONENTS=(
+        argocd
+        kube-system
+        monitoring
+        external-secrets
+        kyverno
+        falco
+        trivy-system
+        observability
+        karpenter
+    )
+
+    for ns in "${COMPONENTS[@]}"
+    do
+
+        if kubectl get ns "$ns" >/dev/null 2>&1
+        then
+            success "$ns"
+
+            kubectl get pods -n "$ns" \
+                --no-headers 2>/dev/null || true
+
+        else
+
+            warning "$ns not installed"
+
+        fi
+
+        echo ""
+
+    done
+
+}
+
+# ============================================================
+# VERIFY CLUSTER
+# ============================================================
 
 verify_platform() {
 
-    title "Platform Status"
+    title "Cluster Status"
 
-    kubectl get ns
+    kubectl get nodes
 
     echo ""
 
@@ -105,46 +260,56 @@ verify_platform() {
 
 }
 
-verify_components() {
+# ============================================================
+# PORT FORWARD INFO
+# ============================================================
 
-    title "Component Status"
+show_dashboard_info() {
 
-    COMPONENTS=(
-        argocd
-        kube-system
-        monitoring
-        kyverno
-        falco
-        trivy-system
-        external-secrets
-        observability
-        karpenter
-    )
+    title "Dashboards"
 
-    for ns in "${COMPONENTS[@]}"
-    do
+    cat <<EOF
 
-        if kubectl get ns "$ns" >/dev/null 2>&1; then
+ArgoCD
 
-            success "$ns"
+kubectl port-forward svc/argocd-server \
+-n argocd 8080:443
 
-        else
+https://localhost:8080
 
-            warning "$ns not deployed yet"
+---------------------------------------
 
-        fi
+Grafana
 
-    done
+kubectl port-forward svc/grafana \
+-n monitoring 3000:80
+
+http://localhost:3000
+
+---------------------------------------
+
+Prometheus
+
+kubectl port-forward svc/prometheus-server \
+-n monitoring 9090:80
+
+http://localhost:9090
+
+EOF
 
 }
+
+# ============================================================
+# NEXT STEPS
+# ============================================================
 
 print_next_steps() {
 
 cat <<EOF
 
-========================================================
+==================================================
 
-Bootstrap Completed
+Bootstrap Completed Successfully
 
 Next Commands
 
@@ -152,15 +317,21 @@ make verify
 
 make health
 
+make dashboard
+
 make logs
 
 make release
 
-========================================================
+==================================================
 
 EOF
 
 }
+
+# ============================================================
+# MAIN
+# ============================================================
 
 main() {
 
@@ -168,9 +339,17 @@ main() {
 
     doctor
 
+    update_kubeconfig
+
+    verify_cluster
+
     install_argocd
 
+    wait_namespace
+
     wait_argocd
+
+    verify_argocd
 
     show_password
 
@@ -179,6 +358,8 @@ main() {
     verify_components
 
     verify_platform
+
+    show_dashboard_info
 
     end_timer
 

@@ -1,0 +1,15 @@
+.terraform/
+
+terraform.tfstate*
+
+*.tfplan
+
+app-source/
+
+*.log
+
+.env
+
+coverage/
+
+__pycache__/
