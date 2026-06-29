@@ -1,4 +1,4 @@
-# Enterprise Cloud DevSecOps Platform (CDS)
+# CDS - Enterprise Cloud DevSecOps System
 
 > **A production-grade, GitOps-driven DevSecOps platform on AWS EKS — fully automated from infrastructure provisioning to continuous deployment, with security and observability baked in at every layer.**
 
