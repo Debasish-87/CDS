@@ -18,7 +18,7 @@ permissions:
 
 env:
   AWS_REGION: ap-south-1
-  TF_VERSION: 1.9.8
+  TF_VERSION: "1.9.8"
   TF_PLUGIN_CACHE_DIR: ~/.terraform.d/plugin-cache
 
 concurrency:
@@ -28,9 +28,7 @@ concurrency:
 jobs:
   terraform-plan:
     name: Terraform Validate & Plan
-
     runs-on: ubuntu-latest
-
     timeout-minutes: 30
 
     defaults:
@@ -46,19 +44,29 @@ jobs:
         uses: actions/checkout@v4
 
       ############################################################
-      # Terraform
+      # Setup Terraform
       ############################################################
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      ############################################################
+      # Prepare Plugin Cache
+      ############################################################
+
+      - name: Create Terraform Plugin Cache
+        run: |
+          mkdir -p "$HOME/.terraform.d/plugin-cache"
+          echo "TF_PLUGIN_CACHE_DIR=$HOME/.terraform.d/plugin-cache" >> "$GITHUB_ENV"
 
       ############################################################
       # Cache Providers
       ############################################################
 
-      - name: Cache Terraform Plugins
+      - name: Cache Terraform Providers
         uses: actions/cache@v4
         with:
           path: |
@@ -66,7 +74,7 @@ jobs:
           key: terraform-${{ runner.os }}-${{ hashFiles('**/.terraform.lock.hcl') }}
           restore-keys: |
             terraform-${{ runner.os }}-
-
+            
       ############################################################
       # AWS Login
       ############################################################

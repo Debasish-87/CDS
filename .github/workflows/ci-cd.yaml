@@ -64,7 +64,7 @@ jobs:
           dockerfile: application/Dockerfile
           failure-threshold: error
           no-fail: true
-          
+
       - name: Terraform Format Check
         run: |
           terraform fmt \
@@ -93,6 +93,20 @@ jobs:
           output_format: sarif
           output_file_path: reports/checkov.sarif
 
+      - name: Checkout CDS Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+          terraform_wrapper: false
+
+      - name: Verify Repository
+        run: |
+          pwd
+          ls -la
+          
       - name: Upload Checkov SARIF
 
         if: always() && hashFiles('reports/checkov.sarif') != ''
@@ -121,8 +135,7 @@ jobs:
         uses: github/codeql-action/upload-sarif@v4
 
         with:
-          sarif_file:
-            trivy-fs.sarif
+          sarif_file: trivy-fs.sarif
             # ==========================================================
   # BUILD + PUSH IMAGE
   # ==========================================================
